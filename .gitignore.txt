@@ -1,0 +1,1 @@
+# Xcode & Swift.DS_Store.build/DerivedData/xcuserdata/*.xcuserstate*.xcscmblueprint# Swift Package Manager/.swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata/.swiftpm# CocoaPods (if you use it)Pods/*.xcworkspace# CarthageCarthage/Build/# Fastlanefastlane/report.xmlfastlane/Preview.htmlfastlane/screenshots/**/*.pngfastlane/test_output
