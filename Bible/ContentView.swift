@@ -64,6 +64,14 @@ struct Favorite: Identifiable, Equatable {
     }
 }
 
+// MARK: - BibleVerseNavigation (for Equatable pending navigation)
+
+struct BibleVerseNavigation: Equatable {
+    let bookIndex: Int
+    let chapterIndex: Int
+    let verseIndex: Int
+}
+
 // MARK: - ViewModel
 
 class BibleViewModel: ObservableObject {
@@ -299,42 +307,65 @@ struct ContentView: View {
     
     @AppStorage("textSizeOption") private var textSizeOption: TextSizeOption = .medium
     @AppStorage("appearanceOption") private var appearanceOption: AppearanceOption = .system
+    
+    @State private var selectedTab: Int = 0
+    @State private var pendingBibleNavigation: BibleVerseNavigation? = nil
 
     var body: some View {
-        TabView {
-            Text("Home Page")
-                .tabItem {
-                    Label("Home", systemImage: "house")
+        TabView(selection: $selectedTab) {
+            RandomVerseView(viewModel: bibleViewModel, onTapVerse: { verse in
+                if let verse = verse {
+                    pendingBibleNavigation = BibleVerseNavigation(bookIndex: verse.bookIndex, chapterIndex: verse.chapterIndex, verseIndex: verse.verseIndex)
+                    selectedTab = 1
                 }
-            BibleTabView()
-                .environmentObject(bibleViewModel)
-                .tabItem {
-                    Label("Bible", systemImage: "book")
-                }
+            })
+            .tabItem {
+                Label("Home", systemImage: "house")
+            }
+            .tag(0)
+
+            BibleTabView(pendingNavigation: pendingBibleNavigation, onNavigationHandled: {
+                pendingBibleNavigation = nil
+            })
+            .environmentObject(bibleViewModel)
+            .tabItem {
+                Label("Bible", systemImage: "book")
+            }
+            .tag(1)
+
             BibleSearchView(viewModel: bibleViewModel)
                 .environmentObject(bibleViewModel)
                 .tabItem {
                     Label("Search", systemImage: "magnifyingglass")
                 }
+                .tag(2)
+
             FavoritesListView()
                 .environmentObject(bibleViewModel)
                 .tabItem {
                     Label("Favorites", systemImage: "heart")
                 }
+                .tag(3)
+
             BookmarksListView()
                 .environmentObject(bibleViewModel)
                 .tabItem {
                     Label("Bookmarks", systemImage: "bookmark")
                 }
+                .tag(4)
+
             NotesListView()
                 .environmentObject(bibleViewModel)
                 .tabItem {
                     Label("Notes", systemImage: "note.text")
                 }
+                .tag(5)
+
             SettingsView(textSizeOption: $textSizeOption, appearanceOption: $appearanceOption)
                 .tabItem {
                     Label("Settings", systemImage: "gear")
                 }
+                .tag(6)
         }
         .preferredColorScheme(appearanceOption.colorScheme)
         .environment(\.sizeCategory, textSizeOption.contentSizeCategory)
@@ -345,25 +376,81 @@ struct ContentView: View {
 
 struct BibleTabView: View {
     @EnvironmentObject private var viewModel: BibleViewModel
+    
+    // Optional pending navigation target from RandomVerseView
+    var pendingNavigation: BibleVerseNavigation? = nil
+    var onNavigationHandled: (() -> Void)? = nil
 
+    @State private var path: [BiblePathEntry] = []
+    
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             VStack {
                 List(viewModel.books) { book in
-                    NavigationLink(book.name, value: book)
+                    NavigationLink(book.name, value: BiblePathEntry.book(book))
                 }
                 .navigationTitle("Books")
-                .navigationDestination(for: Book.self) { book in
-                    ChapterListView(book: book, books: viewModel.books)
+                .navigationDestination(for: BiblePathEntry.self) { entry in
+                    switch entry {
+                    case .book(let book):
+                        ChapterListView(book: book, books: viewModel.books)
+                            .environmentObject(viewModel)
+                    case .chapter(let book, let chapterIndex):
+                        VerseSelectionView(
+                            book: book,
+                            chapterIndex: chapterIndex,
+                            books: viewModel.books
+                        )
                         .environmentObject(viewModel)
+                    case .verse(let bookIndex, let chapterIndex, let verseIndex):
+                        VerseDetailView(
+                            books: viewModel.books,
+                            bookIndex: bookIndex,
+                            chapterIndex: chapterIndex,
+                            verseIndex: verseIndex
+                        )
+                        .environmentObject(viewModel)
+                    }
                 }
-
                 if let error = viewModel.loadingError {
                     Text(error).foregroundStyle(.red)
                 }
             }
+            .onAppear {
+                if let nav = pendingNavigation,
+                   path.isEmpty,
+                   viewModel.books.indices.contains(nav.bookIndex) {
+                    let book = viewModel.books[nav.bookIndex]
+                    path = [.book(book), .chapter(book, nav.chapterIndex), .verse(nav.bookIndex, nav.chapterIndex, nav.verseIndex)]
+                    DispatchQueue.main.async {
+                        onNavigationHandled?()
+                    }
+                }
+            }
+            .onChange(of: pendingNavigation) { newValue in
+                guard let nav = newValue else { return }
+                // Clear current navigation path and push desired navigation
+                path = []
+                // Push book, chapter, verse
+                if nav.bookIndex >= 0 && nav.bookIndex < viewModel.books.count {
+                    let book = viewModel.books[nav.bookIndex]
+                    path.append(.book(book))
+                    path.append(.chapter(book, nav.chapterIndex))
+                    path.append(.verse(nav.bookIndex, nav.chapterIndex, nav.verseIndex))
+                }
+                DispatchQueue.main.async {
+                    onNavigationHandled?()
+                }
+            }
         }
     }
+}
+
+// Path enum for navigation stack
+enum BiblePathEntry: Hashable {
+    case book(Book)
+    case chapter(Book, Int)
+    case verse(Int, Int, Int)
 }
 
 struct ChapterListView: View {
@@ -376,20 +463,10 @@ struct ChapterListView: View {
         List(0..<book.chapters.count, id: \.self) { chapterIndex in
             NavigationLink(
                 "Chapter \(chapterIndex + 1)",
-                value: ChapterSelection(bookAbbrev: book.abbrev, chapterIndex: chapterIndex)
+                value: BiblePathEntry.chapter(book, chapterIndex)
             )
         }
         .navigationTitle(book.name)
-        .navigationDestination(for: ChapterSelection.self) { selection in
-            if let selectedBook = books.first(where: { $0.abbrev == selection.bookAbbrev }) {
-                VerseSelectionView(
-                    book: selectedBook,
-                    chapterIndex: selection.chapterIndex,
-                    books: books
-                )
-                .environmentObject(bibleViewModel)
-            }
-        }
     }
 }
 
@@ -405,13 +482,7 @@ struct VerseSelectionView: View {
             if let bookIndex = books.firstIndex(of: book) {
                 NavigationLink(
                     "Verse \(verseIndex + 1)",
-                    destination: VerseDetailView(
-                        books: books,
-                        bookIndex: bookIndex,
-                        chapterIndex: chapterIndex,
-                        verseIndex: verseIndex
-                    )
-                    .environmentObject(bibleViewModel)
+                    value: BiblePathEntry.verse(bookIndex, chapterIndex, verseIndex)
                 )
             }
         }
@@ -1023,6 +1094,121 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+        }
+    }
+}
+
+// MARK: - RandomVerseView
+
+struct RandomVerseView: View {
+    @ObservedObject var viewModel: BibleViewModel
+    var onTapVerse: ((VerseResult?) -> Void)? = nil
+    @State private var currentVerse: VerseResult?
+    @State private var showingShare: Bool = false
+    @State private var copied: Bool = false
+
+    var body: some View {
+        VStack(spacing: 24) {
+            Spacer(minLength: 40)
+            Group {
+                if let verse = currentVerse {
+                    VStack(spacing: 12) {
+                        Text(verse.text)
+                            .font(.title2)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal)
+                        Text("\(verse.book.name) \(verse.chapterIndex + 1):\(verse.verseIndex + 1)")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        onTapVerse?(verse)
+                    }
+                } else if viewModel.loadingError != nil {
+                    Text("Error loading Bible")
+                        .foregroundColor(.red)
+                } else {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                }
+            }
+            HStack(spacing: 32) {
+                Button(action: pickRandomVerse) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.title2)
+                        .accessibilityLabel("Refresh")
+                }
+                Button(action: {
+                    if let verse = currentVerse {
+                        UIPasteboard.general.string = verse.text
+                        copied = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                            copied = false
+                        }
+                    }
+                }) {
+                    Image(systemName: "doc.on.doc")
+                        .font(.title2)
+                        .accessibilityLabel("Copy")
+                }
+                Button(action: {
+                    showingShare = true
+                }) {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.title2)
+                        .accessibilityLabel("Share")
+                }
+                .disabled(currentVerse == nil)
+            }.padding(.top, 6)
+            if copied {
+                HStack(spacing: 8) {
+                    Image(systemName: "checkmark.circle.fill").foregroundColor(.green)
+                    Text("Copied!")
+                        .fontWeight(.medium)
+                }
+                .padding(.vertical, 8)
+                .padding(.horizontal, 18)
+                .background(.ultraThinMaterial)
+                .clipShape(Capsule())
+                .shadow(radius: 6)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .animation(.easeInOut(duration: 0.3), value: copied)
+            }
+            Spacer()
+        }
+        .onAppear(perform: pickRandomVerse)
+        .sheet(isPresented: $showingShare) {
+            if let verse = currentVerse {
+                ShareSheet(activityItems: [verse.text + "\n\n" + verse.book.name + " " + String(verse.chapterIndex + 1) + ":" + String(verse.verseIndex + 1)])
+            }
+        }
+    }
+
+    private func pickRandomVerse() {
+        guard !viewModel.books.isEmpty else {
+            currentVerse = nil
+            return
+        }
+        var allVerses: [VerseResult] = []
+        for (bIndex, book) in viewModel.books.enumerated() {
+            for (cIndex, chapter) in book.chapters.enumerated() {
+                for (vIndex, verseText) in chapter.enumerated() {
+                    allVerses.append(
+                        VerseResult(
+                            bookIndex: bIndex,
+                            chapterIndex: cIndex,
+                            verseIndex: vIndex,
+                            book: book,
+                            text: verseText
+                        )
+                    )
+                }
+            }
+        }
+        if let verse = allVerses.randomElement() {
+            currentVerse = verse
         }
     }
 }
