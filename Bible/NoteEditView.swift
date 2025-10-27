@@ -26,6 +26,7 @@ struct NoteEditView: View {
         return df
     }()
 
+    @ViewBuilder
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading) {
@@ -58,3 +59,4 @@ struct NoteEditView: View {
         }
     }
 }
+
