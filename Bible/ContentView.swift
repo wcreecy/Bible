@@ -17,6 +17,7 @@ struct ContentView: View {
                     selectedTab = 1
                 }
             })
+            .font(.callout)
             .tabItem { Label("Home", systemImage: "house") }
             .tag(0)
 

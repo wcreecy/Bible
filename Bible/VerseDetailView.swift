@@ -108,6 +108,33 @@ struct VerseDetailView: View {
                     .padding(.vertical)
                     .padding(.horizontal)
                 }
+                .gesture(
+                    DragGesture().onEnded { value in
+                        if value.translation.width < -40 {
+                            // Swipe left: next chapter (if available)
+                            if chapterIndex + 1 < currentBook.chapters.count {
+                                chapterIndex += 1
+                                verseIndex = 0
+                                highlightedVerse = 0
+                                isPersistentHighlight = false
+                                DispatchQueue.main.async {
+                                    proxy.scrollTo(0, anchor: .center)
+                                }
+                            }
+                        } else if value.translation.width > 40 {
+                            // Swipe right: previous chapter (if available)
+                            if chapterIndex > 0 {
+                                chapterIndex -= 1
+                                verseIndex = 0
+                                highlightedVerse = 0
+                                isPersistentHighlight = false
+                                DispatchQueue.main.async {
+                                    proxy.scrollTo(0, anchor: .center)
+                                }
+                            }
+                        }
+                    }
+                )
                 .navigationTitle("\(currentBook.name) \(chapterIndex + 1)")
                 .onAppear {
                     highlightedVerse = verseIndex
