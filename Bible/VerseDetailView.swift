@@ -30,9 +30,7 @@ class BibleSpeechCoordinator: NSObject, ObservableObject, AVSpeechSynthesizerDel
         self.speechRate = speechRate
     }
 
-    func assignProxy(_ proxy: ScrollViewProxy) {
-        self.proxy = proxy
-    }
+    func assignProxy(_ proxy: ScrollViewProxy) { self.proxy = proxy }
 
     func startReading() {
         synthesizer = AVSpeechSynthesizer()
@@ -50,10 +48,7 @@ class BibleSpeechCoordinator: NSObject, ObservableObject, AVSpeechSynthesizerDel
     }
 
     private func speakNext() {
-        guard chapterIndex < books[bookIndex].chapters.count else {
-            stopReading()
-            return
-        }
+        guard chapterIndex < books[bookIndex].chapters.count else { stopReading(); return }
         let verses = books[bookIndex].chapters[chapterIndex]
         guard let idx = readingVerseIdx, idx < verses.count else {
             if chapterIndex + 1 < books[bookIndex].chapters.count {
@@ -71,9 +66,7 @@ class BibleSpeechCoordinator: NSObject, ObservableObject, AVSpeechSynthesizerDel
             return
         }
         let utterance = AVSpeechUtterance(string: verses[idx])
-        if let voice = AVSpeechSynthesisVoice(identifier: selectedVoice) {
-            utterance.voice = voice
-        }
+        if let voice = AVSpeechSynthesisVoice(identifier: selectedVoice) { utterance.voice = voice }
         utterance.rate = Float(speechRate)
         synthesizer?.speak(utterance)
         highlightAndScroll(idx)
@@ -102,7 +95,7 @@ struct VerseDetailView: View {
     @State private var highlightedVerse: Int? = nil
     @State private var isPersistentHighlight: Bool = false
     @State private var toastMessage: String? = nil
-    @State private var menuVerse: Int? = nil   // 👈 Track which verse menu is open
+    @State private var menuVerse: Int? = nil
 
     @AppStorage("speechVoiceIdentifier") private var speechVoiceIdentifier: String = AVSpeechSynthesisVoice(language: "en-US")?.identifier ?? ""
     @AppStorage("speechRate") private var speechRate: Double = 0.5
@@ -125,6 +118,36 @@ struct VerseDetailView: View {
     }
 
     var currentBook: Book { books[bookIndex] }
+
+    // MARK: - Gesture helpers
+    private func handleSwipe(_ value: DragGesture.Value, proxy: ScrollViewProxy) {
+        let dx = value.translation.width
+        let dy = value.translation.height
+        // Horizontal intent only if strong enough
+        guard abs(dx) > abs(dy) * 1.2, abs(dx) > 60 else { return }
+
+        if dx < 0 {
+            // Next chapter
+            if chapterIndex + 1 < currentBook.chapters.count {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                chapterIndex += 1
+                verseIndex = 0
+                highlightedVerse = 0
+                isPersistentHighlight = false
+                withAnimation { proxy.scrollTo(0, anchor: .top) }
+            }
+        } else {
+            // Previous chapter
+            if chapterIndex > 0 {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                chapterIndex -= 1
+                verseIndex = 0
+                highlightedVerse = 0
+                isPersistentHighlight = false
+                withAnimation { proxy.scrollTo(0, anchor: .top) }
+            }
+        }
+    }
 
     private var verseRows: some View {
         ForEach(currentBook.chapters[chapterIndex].indices, id: \.self) { idx in
@@ -151,11 +174,7 @@ struct VerseDetailView: View {
                 },
                 onLongPress: {
                     withAnimation {
-                        if menuVerse == idx {
-                            menuVerse = nil
-                        } else {
-                            menuVerse = idx
-                        }
+                        menuVerse = (menuVerse == idx ? nil : idx)
                     }
                 },
                 onCopy: {
@@ -175,18 +194,21 @@ struct VerseDetailView: View {
                     bibleViewModel.addOrUpdateItem(
                         VerseItem(book: currentBook, bookIndex: bookIndex, chapterIndex: chapterIndex, verseIndex: idx, text: text, type: .note)
                     )
+                    withAnimation { menuVerse = nil }
                 },
                 onBookmark: {
                     let text = currentBook.chapters[chapterIndex][idx]
                     bibleViewModel.addOrUpdateItem(
                         VerseItem(book: currentBook, bookIndex: bookIndex, chapterIndex: chapterIndex, verseIndex: idx, text: text, type: .bookmark)
                     )
+                    withAnimation { menuVerse = nil }
                 },
                 onFavorite: {
                     let text = currentBook.chapters[chapterIndex][idx]
                     bibleViewModel.addOrUpdateItem(
                         VerseItem(book: currentBook, bookIndex: bookIndex, chapterIndex: chapterIndex, verseIndex: idx, text: text, type: .favorite)
                     )
+                    withAnimation { menuVerse = nil }
                 }
             )
             .id(idx)
@@ -202,51 +224,35 @@ struct VerseDetailView: View {
                     }
                     .padding(.vertical)
                     .padding(.horizontal)
-                    // 👇 Tap background closes menu
                     .contentShape(Rectangle())
                     .onTapGesture {
                         withAnimation { menuVerse = nil }
                     }
                 }
-                // 👇 Any scroll hides the menu
+                // close the verse-action menu when user scrolls
                 .simultaneousGesture(
                     DragGesture().onChanged { _ in
-                        if menuVerse != nil {
-                            withAnimation { menuVerse = nil }
-                        }
+                        if menuVerse != nil { withAnimation { menuVerse = nil } }
                     }
                 )
-                .gesture(
-                    DragGesture().onEnded { value in
-                        if value.translation.width < -40 {
-                            if chapterIndex + 1 < currentBook.chapters.count {
-                                chapterIndex += 1
-                                verseIndex = 0
-                                highlightedVerse = 0
-                                isPersistentHighlight = false
-                                DispatchQueue.main.async {
-                                    proxy.scrollTo(0, anchor: .center)
+                // 👇 Add swipe gesture on outer ZStack
+                .background(
+                    Color.clear
+                        .highPriorityGesture(
+                            DragGesture(minimumDistance: 20, coordinateSpace: .local)
+                                .onEnded { value in
+                                    handleSwipe(value, proxy: proxy)
                                 }
-                            }
-                        } else if value.translation.width > 40 {
-                            if chapterIndex > 0 {
-                                chapterIndex -= 1
-                                verseIndex = 0
-                                highlightedVerse = 0
-                                isPersistentHighlight = false
-                                DispatchQueue.main.async {
-                                    proxy.scrollTo(0, anchor: .center)
-                                }
-                            }
-                        }
-                    }
+                        )
                 )
                 .navigationTitle("\(currentBook.name) \(chapterIndex + 1)")
                 .onAppear {
                     highlightedVerse = verseIndex
                     isPersistentHighlight = false
                     speechCoordinator.assignProxy(proxy)
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { proxy.scrollTo(verseIndex, anchor: .center) }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                        proxy.scrollTo(verseIndex, anchor: .center)
+                    }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                         if !isPersistentHighlight { withAnimation { highlightedVerse = nil } }
                     }
@@ -264,23 +270,18 @@ struct VerseDetailView: View {
                     }
                 }) {
                     Image(systemName: speechCoordinator.isReading ? "stop.circle.fill" : "play.circle.fill")
-                        .font(.system(size: 24))
+                        .font(.system(size: 28, weight: .bold))
                         .foregroundStyle(.primary)
-                        .frame(width: 40, height: 40)
+                        .frame(width: 50, height: 50)
                         .background(.ultraThinMaterial)
-                        .opacity(0.75)
                         .clipShape(Circle())
-                        .contentShape(Circle())
+                        .shadow(color: .black.opacity(0.15), radius: 6, y: 3)
+                        .opacity(0.65)
                 }
                 Spacer()
             }
             .padding(.vertical, 10)
         }
-    }
-
-    private func showToast(_ text: String) {
-        toastMessage = text
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { withAnimation { toastMessage = nil } }
     }
 }
 

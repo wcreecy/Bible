@@ -164,7 +164,6 @@ struct RandomVerseView: View {
                     RoundedRectangle(cornerRadius: 22, style: .continuous).fill(timerCardColor)
                 }
                 VStack(alignment: .center, spacing: 12) {
-                    // Header with timer icon
                     HStack(spacing: 6) {
                         Image(systemName: "timer")
                             .font(.headline)
@@ -181,7 +180,7 @@ struct RandomVerseView: View {
                     if !timerActive {
                         Button(action: { showTimerSheet = true }) {
                             HStack(spacing: 8) {
-                                Image(systemName: "play.circle.fill")   // Start/play icon
+                                Image(systemName: "play.circle")   // plain play icon, no fill
                                     .font(.title2)
                                 Text("Start")
                                     .font(.body)
@@ -232,7 +231,7 @@ struct RandomVerseView: View {
                 // No action yet
             }) {
                 HStack(spacing: 8) {
-                    Image(systemName: "arrow.uturn.forward.circle.fill") // Resume icon
+                    Image(systemName: "arrow.uturn.forward.circle") // plain resume icon, no fill
                         .font(.headline)
                     Text("Resume")
                         .font(.headline)
