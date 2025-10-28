@@ -13,7 +13,7 @@ extension View {
     func heroCard() -> some View {
         self
             .padding()
-            .background(.thinMaterial)
+            .background(.ultraThinMaterial)
             .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
             .shadow(color: .black.opacity(0.10), radius: 7, y: 2)
             .padding(.horizontal)
@@ -52,33 +52,46 @@ struct RandomVerseView: View {
     }
 
     var body: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: 10) {
             // Card 1: Main Title
-            Text("Word of God")
-                .font(.largeTitle.bold())
-                .multilineTextAlignment(.center)
-                .accessibilityAddTraits(.isHeader)
-                .heroCard()
-                .padding(.vertical, 4)
+            VStack {
+                Text("Word of God")
+                    .font(.system(size: 44, weight: .black, design: .serif))
+                    .foregroundStyle(LinearGradient(gradient: Gradient(colors: [.accentColor, .primary]), startPoint: .leading, endPoint: .trailing))
+                    .multilineTextAlignment(.center)
+                    .tracking(1.2)
+                    .shadow(color: .black.opacity(0.08), radius: 3, y: 2)
+                    .accessibilityAddTraits(.isHeader)
+            }
+            .frame(maxWidth: .infinity)
+            .heroCard()
+            .padding(.vertical, 4)
             
-            Spacer().frame(height: 24)
+            Spacer().frame(height: 10)
 
             // Card 2: Verse of the day section
-            VStack(spacing: 12) {
-                Text("Verse of the day")
-                    .font(.headline)
-                    .foregroundColor(.primary)
-                    .padding(.bottom, 2)
-                    .accessibilityAddTraits(.isHeader)
+            VStack(spacing: 8) {
+                HStack(alignment: .top, spacing: 6) {
+                    Text("“")
+                        .font(.system(size: 42, weight: .bold, design: .serif))
+                        .foregroundColor(.accentColor)
+                        .padding(.top, -6)
+
+                    Text("Verse of the day")
+                        .font(.headline)  // matches Prayer/Study Timer
+                        .foregroundColor(.primary)
+                        .accessibilityAddTraits(.isHeader)
+                }
                 
                 Group {
                     if let error = viewModel.loadingError {
                         Text("Error: \(error)").foregroundColor(.red)
                     } else if let verse = currentVerse {
-                        VStack(spacing: 12) {
+                        VStack(spacing: 6) {
                             Text(verse.text)
                                 .font(.body)
                                 .multilineTextAlignment(.center)
+
                             Text("\(verse.book.name) \(verse.chapterIndex + 1):\(verse.verseIndex + 1)")
                                 .font(.subheadline)
                                 .foregroundColor(.secondary)
@@ -143,21 +156,32 @@ struct RandomVerseView: View {
             .heroCard()
             .padding(.vertical, 4)
             
-            Spacer().frame(height: 2)
+            Spacer().frame(height: 4)
 
             // Card 3: Prayer/Study Timer section
             ZStack {
-                if timerActive { RoundedRectangle(cornerRadius: 22, style: .continuous).fill(timerCardColor) }
+                if timerActive {
+                    RoundedRectangle(cornerRadius: 22, style: .continuous).fill(timerCardColor)
+                }
                 VStack(alignment: .center, spacing: 12) {
-                    Text("Prayer/Study Timer").font(.headline)
+                    // Header with timer icon
+                    HStack(spacing: 6) {
+                        Image(systemName: "timer")
+                            .font(.headline)
+                            .foregroundColor(.accentColor)
+                        Text("Prayer/Study Timer")
+                            .font(.headline)
+                    }
+
                     Text("Start a focused timer with an alert when time is up.")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
+
                     if !timerActive {
                         Button(action: { showTimerSheet = true }) {
                             HStack(spacing: 8) {
-                                Image(systemName: "timer")
+                                Image(systemName: "play.circle.fill")   // Start/play icon
                                     .font(.title2)
                                 Text("Start")
                                     .font(.body)
@@ -194,26 +218,32 @@ struct RandomVerseView: View {
                         }
                     }
                 }
-                .frame(maxHeight: .infinity) // to center vertically in ZStack
+                .frame(maxHeight: .infinity)
             }
             .heroCard()
             .frame(height: 130)
             .padding(.vertical, 4)
             
-            Spacer().frame(height: 32)
+            Spacer().frame(height: 12)
         }
         .padding(.top, 20)
         .safeAreaInset(edge: .bottom) {
-            Button("Resume") {
+            Button(action: {
                 // No action yet
+            }) {
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.uturn.forward.circle.fill") // Resume icon
+                        .font(.headline)
+                    Text("Resume")
+                        .font(.headline)
+                }
+                .frame(maxWidth: .infinity)
             }
-            .font(.headline)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
+            .padding(.vertical, 2)
             .padding(.horizontal)
             .heroCard()
-            .padding(.vertical, 4)
-            .padding(.bottom, 18)
+            .padding(.vertical, 2)
+            .padding(.bottom, 10)
         }
         .onAppear(perform: pickRandomVerse)
         .sheet(isPresented: $showingShare) {
@@ -285,4 +315,3 @@ struct RandomVerseView: View {
         }
     }
 }
-

@@ -102,6 +102,7 @@ struct VerseDetailView: View {
     @State private var highlightedVerse: Int? = nil
     @State private var isPersistentHighlight: Bool = false
     @State private var toastMessage: String? = nil
+    @State private var menuVerse: Int? = nil   // 👈 Track which verse menu is open
 
     @AppStorage("speechVoiceIdentifier") private var speechVoiceIdentifier: String = AVSpeechSynthesisVoice(language: "en-US")?.identifier ?? ""
     @AppStorage("speechRate") private var speechRate: Double = 0.5
@@ -135,7 +136,7 @@ struct VerseDetailView: View {
                 chapterIndex: chapterIndex,
                 idx: idx,
                 highlightedVerse: speechCoordinator.isReading ? speechCoordinator.readingVerseIdx : highlightedVerse,
-                menuVerse: nil,
+                menuVerse: menuVerse,
                 copiedVerse: nil,
                 isBookmarked: existingBookmark != nil,
                 isFavorite: existingFavorite != nil,
@@ -148,12 +149,45 @@ struct VerseDetailView: View {
                         withAnimation { highlightedVerse = idx; isPersistentHighlight = true }
                     }
                 },
-                onLongPress: {},
-                onCopy: {},
-                onShare: {},
-                onNote: {},
-                onBookmark: {},
-                onFavorite: {}
+                onLongPress: {
+                    withAnimation {
+                        if menuVerse == idx {
+                            menuVerse = nil
+                        } else {
+                            menuVerse = idx
+                        }
+                    }
+                },
+                onCopy: {
+                    let text = currentBook.chapters[chapterIndex][idx]
+                    UIPasteboard.general.string = text
+                },
+                onShare: {
+                    let text = currentBook.chapters[chapterIndex][idx]
+                    let activityVC = UIActivityViewController(activityItems: [text], applicationActivities: nil)
+                    if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                       let root = windowScene.windows.first?.rootViewController {
+                        root.present(activityVC, animated: true)
+                    }
+                },
+                onNote: {
+                    let text = currentBook.chapters[chapterIndex][idx]
+                    bibleViewModel.addOrUpdateItem(
+                        VerseItem(book: currentBook, bookIndex: bookIndex, chapterIndex: chapterIndex, verseIndex: idx, text: text, type: .note)
+                    )
+                },
+                onBookmark: {
+                    let text = currentBook.chapters[chapterIndex][idx]
+                    bibleViewModel.addOrUpdateItem(
+                        VerseItem(book: currentBook, bookIndex: bookIndex, chapterIndex: chapterIndex, verseIndex: idx, text: text, type: .bookmark)
+                    )
+                },
+                onFavorite: {
+                    let text = currentBook.chapters[chapterIndex][idx]
+                    bibleViewModel.addOrUpdateItem(
+                        VerseItem(book: currentBook, bookIndex: bookIndex, chapterIndex: chapterIndex, verseIndex: idx, text: text, type: .favorite)
+                    )
+                }
             )
             .id(idx)
         }
@@ -168,11 +202,23 @@ struct VerseDetailView: View {
                     }
                     .padding(.vertical)
                     .padding(.horizontal)
+                    // 👇 Tap background closes menu
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        withAnimation { menuVerse = nil }
+                    }
                 }
+                // 👇 Any scroll hides the menu
+                .simultaneousGesture(
+                    DragGesture().onChanged { _ in
+                        if menuVerse != nil {
+                            withAnimation { menuVerse = nil }
+                        }
+                    }
+                )
                 .gesture(
                     DragGesture().onEnded { value in
                         if value.translation.width < -40 {
-                            // Swipe left: next chapter (if available)
                             if chapterIndex + 1 < currentBook.chapters.count {
                                 chapterIndex += 1
                                 verseIndex = 0
@@ -183,7 +229,6 @@ struct VerseDetailView: View {
                                 }
                             }
                         } else if value.translation.width > 40 {
-                            // Swipe right: previous chapter (if available)
                             if chapterIndex > 0 {
                                 chapterIndex -= 1
                                 verseIndex = 0
