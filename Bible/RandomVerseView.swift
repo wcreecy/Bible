@@ -9,6 +9,17 @@ import SwiftUI
 import AVFoundation
 import AudioToolbox
 
+extension View {
+    func heroCard() -> some View {
+        self
+            .padding()
+            .background(.thinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .shadow(color: .black.opacity(0.10), radius: 7, y: 2)
+            .padding(.horizontal)
+    }
+}
+
 struct RandomVerseView: View {
     @ObservedObject var viewModel: BibleViewModel
     var onTapVerse: ((VerseResult?) -> Void)? = nil
@@ -21,118 +32,167 @@ struct RandomVerseView: View {
     @State private var timerActive = false
     @State private var timeRemaining: Int = 0
     @State private var showTimerEndedAlert = false
+    @State private var timerPaused = false
+
+    private var isFavorite: Bool {
+        guard let verse = currentVerse else { return false }
+        return viewModel.item(for: .favorite, bookIndex: verse.bookIndex, chapter: verse.chapterIndex, verse: verse.verseIndex) != nil
+    }
+    
+    private var timerCardColor: Color {
+        guard timerActive, timerDuration > 0 else { return .clear }
+        let percent = Double(timeRemaining) / Double(timerDuration)
+        if percent > 0.5 {
+            return .green.opacity(0.18)
+        } else if percent > 0.10 {
+            return .yellow.opacity(0.18)
+        } else {
+            return .red.opacity(0.18)
+        }
+    }
 
     var body: some View {
         VStack(spacing: 24) {
+            // Card 1: Main Title
             Text("Word of God")
                 .font(.largeTitle.bold())
                 .multilineTextAlignment(.center)
-                .padding(.top, 32)
                 .accessibilityAddTraits(.isHeader)
-            
-            Text("Verse of the day")
-                .font(.headline)
-                .foregroundColor(.primary)
-                .padding(.bottom, 2)
-                .accessibilityAddTraits(.isHeader)
-            
-            Group {
-                if let error = viewModel.loadingError {
-                    Text("Error: \(error)").foregroundColor(.red)
-                } else if let verse = currentVerse {
-                    VStack(spacing: 12) {
-                        Text(verse.text)
-                            .font(.body)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal)
-                        Text("\(verse.book.name) \(verse.chapterIndex + 1):\(verse.verseIndex + 1)")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
+                .heroCard()
+                .padding(.vertical, 4)
+
+            // Card 2: Verse of the day section
+            VStack(spacing: 24) {
+                Text("Verse of the day")
+                    .font(.headline)
+                    .foregroundColor(.primary)
+                    .padding(.bottom, 2)
+                    .accessibilityAddTraits(.isHeader)
+                
+                Group {
+                    if let error = viewModel.loadingError {
+                        Text("Error: \(error)").foregroundColor(.red)
+                    } else if let verse = currentVerse {
+                        VStack(spacing: 12) {
+                            Text(verse.text)
+                                .font(.body)
+                                .multilineTextAlignment(.center)
+                            Text("\(verse.book.name) \(verse.chapterIndex + 1):\(verse.verseIndex + 1)")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+                        .onTapGesture {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            onTapVerse?(verse)
+                        }
+                    } else {
+                        ProgressView().progressViewStyle(.circular)
                     }
-                    .onTapGesture {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        onTapVerse?(verse)
+                }
+                
+                HStack(spacing: 32) {
+                    Button(action: pickRandomVerse) {
+                        Image(systemName: "arrow.clockwise").font(.title2)
                     }
-                } else {
-                    ProgressView().progressViewStyle(.circular)
+                    Button(action: {
+                        if let verse = currentVerse {
+                            UIPasteboard.general.string = verse.text
+                            copied = true
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { copied = false }
+                        }
+                    }) {
+                        Image(systemName: "doc.on.doc").font(.title2)
+                    }
+                    Button(action: { showingShare = true }) {
+                        Image(systemName: "square.and.arrow.up").font(.title2)
+                    }
+                    .disabled(currentVerse == nil)
+                    Button(action: {
+                        guard let verse = currentVerse else { return }
+                        if isFavorite {
+                            if let item = viewModel.item(for: .favorite, bookIndex: verse.bookIndex, chapter: verse.chapterIndex, verse: verse.verseIndex) {
+                                viewModel.removeItem(item)
+                            }
+                        } else {
+                            viewModel.addOrUpdateItem(VerseItem(book: verse.book, bookIndex: verse.bookIndex, chapterIndex: verse.chapterIndex, verseIndex: verse.verseIndex, text: verse.text, type: .favorite))
+                        }
+                    }) {
+                        Image(systemName: isFavorite ? "heart.fill" : "heart")
+                            .foregroundColor(.red)
+                            .font(.title2)
+                    }
+                    .disabled(currentVerse == nil)
+                }
+                .padding(.top, 6)
+                
+                if copied {
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill").foregroundColor(.green)
+                        Text("Copied!").fontWeight(.medium)
+                    }
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 18)
+                    .background(.ultraThinMaterial)
+                    .clipShape(Capsule())
+                    .shadow(radius: 6)
+                    .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
-            
-            HStack(spacing: 32) {
-                Button(action: pickRandomVerse) {
-                    Image(systemName: "arrow.clockwise").font(.title2)
-                }
-                Button(action: {
-                    if let verse = currentVerse {
-                        UIPasteboard.general.string = verse.text
-                        copied = true
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { copied = false }
-                    }
-                }) {
-                    Image(systemName: "doc.on.doc").font(.title2)
-                }
-                Button(action: { showingShare = true }) {
-                    Image(systemName: "square.and.arrow.up").font(.title2)
-                }
-                .disabled(currentVerse == nil)
-            }.padding(.top, 6)
-            
-            if copied {
-                HStack(spacing: 8) {
-                    Image(systemName: "checkmark.circle.fill").foregroundColor(.green)
-                    Text("Copied!").fontWeight(.medium)
-                }
-                .padding(.vertical, 8)
-                .padding(.horizontal, 18)
-                .background(.ultraThinMaterial)
-                .clipShape(Capsule())
-                .shadow(radius: 6)
-                .transition(.move(edge: .top).combined(with: .opacity))
-            }
-            
-            VStack(alignment: .center, spacing: 12) {
-                Text("Prayer/Study Timer").font(.headline)
-                Text("Start a focused timer with an alert when time is up.")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                Button(action: { showTimerSheet = true }) {
-                    Label("Start Timer", systemImage: "timer")
-                        .font(.body.bold())
-                        .padding(.vertical, 10)
-                        .frame(maxWidth: .infinity)
-                }
-                .sheet(isPresented: $showTimerSheet) {
-                    VStack(spacing: 20) {
-                        Text("Select timer length").font(.title3.bold())
-                        Picker("Duration", selection: $timerDuration) {
-                            ForEach(1...120, id: \.self) { min in
-                                Text("\(min) minute\(min == 1 ? "" : "s")").tag(min * 60)
+            .heroCard()
+            .padding(.vertical, 4)
+
+            // Card 3: Prayer/Study Timer section
+            ZStack {
+                if timerActive { RoundedRectangle(cornerRadius: 22, style: .continuous).fill(timerCardColor) }
+                VStack(alignment: .center, spacing: 12) {
+                    Text("Prayer/Study Timer").font(.headline)
+                    Text("Start a focused timer with an alert when time is up.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                    if !timerActive {
+                        Button(action: { showTimerSheet = true }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "timer")
+                                    .font(.title2)
+                                Text("Start")
+                                    .font(.body)
+                            }
+                            .frame(maxWidth: .infinity)
+                        }
+                    } else {
+                        HStack(spacing: 40) {
+                            Button(action: {
+                                timerPaused.toggle()
+                            }) {
+                                Image(systemName: timerPaused ? "play.circle" : "pause.circle")
+                                    .font(.title2)
+                                    .foregroundColor(.blue)
+                            }
+                            Button(action: {
+                                timerActive = false
+                                timerPaused = false
+                                timeRemaining = 0
+                            }) {
+                                Image(systemName: "stop.circle")
+                                    .font(.title2)
+                                    .foregroundColor(.red)
                             }
                         }
-                        .pickerStyle(.wheel)
-                        Button("Start") {
-                            timeRemaining = timerDuration
-                            timerActive = true
-                            showTimerSheet = false
+                        if timerActive {
+                            VStack(spacing: 4) {
+                                Text("Timer Running")
+                                    .font(.subheadline)
+                                    .foregroundColor(.blue)
+                                Text(timeString(from: timeRemaining))
+                                    .font(.title.monospacedDigit().weight(.medium))
+                            }
                         }
-                        .buttonStyle(.borderedProminent)
-                        Button("Cancel", role: .cancel) { showTimerSheet = false }
-                    }
-                    .padding()
-                    .presentationDetents([.medium])
-                }
-                if timerActive {
-                    VStack(spacing: 4) {
-                        Text("Timer Running")
-                            .font(.subheadline)
-                            .foregroundColor(.blue)
-                        Text(timeString(from: timeRemaining))
-                            .font(.title.monospacedDigit().weight(.medium))
                     }
                 }
             }
-            .padding(.horizontal)
+            .heroCard()
+            .padding(.vertical, 4)
             
             Spacer()
         }
@@ -144,12 +204,35 @@ struct RandomVerseView: View {
             .frame(maxWidth: .infinity)
             .padding(.vertical, 12)
             .padding(.horizontal)
+            .heroCard()
+            .padding(.vertical, 4)
         }
         .onAppear(perform: pickRandomVerse)
         .sheet(isPresented: $showingShare) {
             if let verse = currentVerse {
                 ShareSheet(activityItems: ["\(verse.text)\n\n\(verse.book.name) \(verse.chapterIndex + 1):\(verse.verseIndex + 1)"])
             }
+        }
+        .sheet(isPresented: $showTimerSheet) {
+            VStack(spacing: 20) {
+                Text("Select timer length").font(.title3.bold())
+                Picker("Duration", selection: $timerDuration) {
+                    ForEach(1...120, id: \.self) { min in
+                        Text("\(min) minute\(min == 1 ? "" : "s")").tag(min * 60)
+                    }
+                }
+                .pickerStyle(.wheel)
+                Button("Start") {
+                    timeRemaining = timerDuration
+                    timerActive = true
+                    timerPaused = false
+                    showTimerSheet = false
+                }
+                .buttonStyle(.borderedProminent)
+                Button("Cancel", role: .cancel) { showTimerSheet = false }
+            }
+            .padding()
+            .presentationDetents([.medium])
         }
         .onChange(of: timerActive) { isActive in
             if isActive {
@@ -183,6 +266,9 @@ struct RandomVerseView: View {
     }
     private func startTimer() {
         Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { timer in
+            if timerPaused || !timerActive {
+                return
+            }
             if timeRemaining > 0 {
                 timeRemaining -= 1
             } else {
@@ -191,4 +277,3 @@ struct RandomVerseView: View {
         }
     }
 }
-
