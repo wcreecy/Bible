@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import AVFoundation
 
 enum TextSizeOption: String, CaseIterable, Identifiable {
     case small, medium, large
@@ -37,6 +38,14 @@ struct SettingsView: View {
     @Binding var textSizeOption: TextSizeOption
     @Binding var appearanceOption: AppearanceOption
 
+    // Store selected speech voice identifier in app storage for persistence
+    @AppStorage("speechVoiceIdentifier") private var speechVoiceIdentifier: String = AVSpeechSynthesisVoice(language: "en-US")?.identifier ?? ""
+
+    // List of available voices sorted by language code
+    private var availableVoices: [AVSpeechSynthesisVoice] {
+        AVSpeechSynthesisVoice.speechVoices().sorted { $0.language < $1.language }
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -54,6 +63,16 @@ struct SettingsView: View {
                             Text(option.rawValue.capitalized).tag(option)
                         }
                     }.pickerStyle(.segmented)
+                }
+
+                // Text-to-Speech voice selection
+                Section("Text-to-Speech") {
+                    Picker("Voice", selection: $speechVoiceIdentifier) {
+                        ForEach(availableVoices, id: \.identifier) { voice in
+                            Text("\(voice.name) (\(voice.language))").tag(voice.identifier)
+                        }
+                    }
+                    .pickerStyle(.navigationLink)
                 }
             }
             .navigationTitle("Settings")

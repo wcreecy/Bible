@@ -6,6 +6,91 @@
 //
 
 import SwiftUI
+import AVFoundation
+import Combine
+
+class BibleSpeechCoordinator: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
+    @Published var isReading = false
+    @Published var readingVerseIdx: Int? = nil
+    private(set) var bookIndex: Int
+    private(set) var chapterIndex: Int
+    private(set) var verseIndex: Int
+    private let books: [Book]
+    private var proxy: ScrollViewProxy?
+    private var synthesizer: AVSpeechSynthesizer?
+    private let selectedVoice: String
+    private let speechRate: Double
+
+    init(books: [Book], bookIndex: Int, chapterIndex: Int, verseIndex: Int, selectedVoice: String, speechRate: Double) {
+        self.books = books
+        self.bookIndex = bookIndex
+        self.chapterIndex = chapterIndex
+        self.verseIndex = verseIndex
+        self.selectedVoice = selectedVoice
+        self.speechRate = speechRate
+    }
+
+    func assignProxy(_ proxy: ScrollViewProxy) {
+        self.proxy = proxy
+    }
+
+    func startReading() {
+        synthesizer = AVSpeechSynthesizer()
+        synthesizer?.delegate = self
+        isReading = true
+        readingVerseIdx = verseIndex
+        speakNext()
+    }
+
+    func stopReading() {
+        synthesizer?.stopSpeaking(at: .immediate)
+        isReading = false
+        readingVerseIdx = nil
+        synthesizer = nil
+    }
+
+    private func speakNext() {
+        guard chapterIndex < books[bookIndex].chapters.count else {
+            stopReading()
+            return
+        }
+        let verses = books[bookIndex].chapters[chapterIndex]
+        guard let idx = readingVerseIdx, idx < verses.count else {
+            if chapterIndex + 1 < books[bookIndex].chapters.count {
+                chapterIndex += 1
+                readingVerseIdx = 0
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.speakNext() }
+            } else if bookIndex + 1 < books.count {
+                bookIndex += 1
+                chapterIndex = 0
+                readingVerseIdx = 0
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.speakNext() }
+            } else {
+                stopReading()
+            }
+            return
+        }
+        let utterance = AVSpeechUtterance(string: verses[idx])
+        if let voice = AVSpeechSynthesisVoice(identifier: selectedVoice) {
+            utterance.voice = voice
+        }
+        utterance.rate = Float(speechRate)
+        synthesizer?.speak(utterance)
+        highlightAndScroll(idx)
+    }
+
+    private func highlightAndScroll(_ idx: Int) {
+        withAnimation { self.readingVerseIdx = idx }
+        proxy?.scrollTo(idx, anchor: .center)
+    }
+
+    func speechSynthesizer(_ synth: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        if isReading, let idx = readingVerseIdx {
+            readingVerseIdx = idx + 1
+            speakNext()
+        }
+    }
+}
 
 struct VerseDetailView: View {
     let books: [Book]
@@ -16,17 +101,26 @@ struct VerseDetailView: View {
     @State private var verseIndex: Int
     @State private var highlightedVerse: Int? = nil
     @State private var isPersistentHighlight: Bool = false
-    @State private var menuVerse: Int? = nil
-    @State private var copiedVerse: Int? = nil
-    @State private var shareText: ShareTextItem? = nil
-    @State private var editingNote: VerseItem? = nil
     @State private var toastMessage: String? = nil
+
+    @AppStorage("speechVoiceIdentifier") private var speechVoiceIdentifier: String = AVSpeechSynthesisVoice(language: "en-US")?.identifier ?? ""
+    @AppStorage("speechRate") private var speechRate: Double = 0.5
+
+    @StateObject private var speechCoordinator: BibleSpeechCoordinator
 
     init(books: [Book], bookIndex: Int, chapterIndex: Int, verseIndex: Int) {
         self.books = books
         _bookIndex = State(initialValue: bookIndex)
         _chapterIndex = State(initialValue: chapterIndex)
         _verseIndex = State(initialValue: verseIndex)
+        _speechCoordinator = StateObject(wrappedValue: BibleSpeechCoordinator(
+            books: books,
+            bookIndex: bookIndex,
+            chapterIndex: chapterIndex,
+            verseIndex: verseIndex,
+            selectedVoice: AVSpeechSynthesisVoice(language: "en-US")?.identifier ?? "",
+            speechRate: 0.5
+        ))
     }
 
     var currentBook: Book { books[bookIndex] }
@@ -40,9 +134,9 @@ struct VerseDetailView: View {
                 book: currentBook,
                 chapterIndex: chapterIndex,
                 idx: idx,
-                highlightedVerse: highlightedVerse,
-                menuVerse: menuVerse,
-                copiedVerse: copiedVerse,
+                highlightedVerse: speechCoordinator.isReading ? speechCoordinator.readingVerseIdx : highlightedVerse,
+                menuVerse: nil,
+                copiedVerse: nil,
                 isBookmarked: existingBookmark != nil,
                 isFavorite: existingFavorite != nil,
                 onTap: {
@@ -54,45 +148,12 @@ struct VerseDetailView: View {
                         withAnimation { highlightedVerse = idx; isPersistentHighlight = true }
                     }
                 },
-                onLongPress: { menuVerse = (menuVerse == idx ? nil : idx) },
-                onCopy: {
-                    UIPasteboard.general.string = currentBook.chapters[chapterIndex][idx]
-                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                    copiedVerse = idx
-                    menuVerse = nil
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { if copiedVerse == idx { copiedVerse = nil } }
-                },
-                onShare: {
-                    shareText = ShareTextItem(text: currentBook.chapters[chapterIndex][idx])
-                    menuVerse = nil
-                },
-                onNote: {
-                    if let existing = bibleViewModel.item(for: .note, bookIndex: bookIndex, chapter: chapterIndex, verse: idx) {
-                        editingNote = existing
-                    } else {
-                        let newNote = VerseItem(book: currentBook, bookIndex: bookIndex, chapterIndex: chapterIndex, verseIndex: idx, text: currentBook.chapters[chapterIndex][idx], type: .note, customText: "")
-                        editingNote = newNote
-                    }
-                    menuVerse = nil
-                },
-                onBookmark: {
-                    if let existing = existingBookmark { bibleViewModel.removeItem(existing) }
-                    else {
-                        let newBookmark = VerseItem(book: currentBook, bookIndex: bookIndex, chapterIndex: chapterIndex, verseIndex: idx, text: currentBook.chapters[chapterIndex][idx], type: .bookmark)
-                        bibleViewModel.addOrUpdateItem(newBookmark)
-                        showToast("Added to Bookmarks")
-                    }
-                    menuVerse = nil
-                },
-                onFavorite: {
-                    if let existing = existingFavorite { bibleViewModel.removeItem(existing) }
-                    else {
-                        let newFav = VerseItem(book: currentBook, bookIndex: bookIndex, chapterIndex: chapterIndex, verseIndex: idx, text: currentBook.chapters[chapterIndex][idx], type: .favorite)
-                        bibleViewModel.addOrUpdateItem(newFav)
-                        showToast("Added to Favorites")
-                    }
-                    menuVerse = nil
-                }
+                onLongPress: {},
+                onCopy: {},
+                onShare: {},
+                onNote: {},
+                onBookmark: {},
+                onFavorite: {}
             )
             .id(idx)
         }
@@ -139,6 +200,7 @@ struct VerseDetailView: View {
                 .onAppear {
                     highlightedVerse = verseIndex
                     isPersistentHighlight = false
+                    speechCoordinator.assignProxy(proxy)
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { proxy.scrollTo(verseIndex, anchor: .center) }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                         if !isPersistentHighlight { withAnimation { highlightedVerse = nil } }
@@ -147,28 +209,27 @@ struct VerseDetailView: View {
             }
         }
         .safeAreaInset(edge: .bottom) {
-            if let toast = toastMessage {
-                HStack(spacing: 8) {
-                    if toast.contains("Favorites") { Image(systemName: "heart.fill").foregroundColor(.red) }
-                    else if toast.contains("Bookmarks") { Image(systemName: "bookmark.fill").foregroundColor(.blue) }
-                    Text(toast).fontWeight(.medium)
+            HStack {
+                Spacer()
+                Button(action: {
+                    if speechCoordinator.isReading {
+                        speechCoordinator.stopReading()
+                    } else {
+                        speechCoordinator.startReading()
+                    }
+                }) {
+                    Image(systemName: speechCoordinator.isReading ? "stop.circle.fill" : "play.circle.fill")
+                        .font(.system(size: 24))
+                        .foregroundStyle(.primary)
+                        .frame(width: 40, height: 40)
+                        .background(.ultraThinMaterial)
+                        .opacity(0.75)
+                        .clipShape(Circle())
+                        .contentShape(Circle())
                 }
-                .padding(.vertical, 10)
-                .padding(.horizontal, 24)
-                .background(.ultraThinMaterial)
-                .clipShape(Capsule())
-                .shadow(radius: 10)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                Spacer()
             }
-        }
-        .sheet(item: $shareText) { item in ShareSheet(activityItems: [item.text]) }
-        .sheet(item: $editingNote) { note in
-            NoteEditView(note: note) { updated in
-                var toSave = updated
-                toSave.date = Date()
-                bibleViewModel.addOrUpdateItem(toSave)
-                editingNote = nil
-            } onCancel: { editingNote = nil }
+            .padding(.vertical, 10)
         }
     }
 
