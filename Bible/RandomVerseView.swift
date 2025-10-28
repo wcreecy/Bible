@@ -60,9 +60,11 @@ struct RandomVerseView: View {
                 .accessibilityAddTraits(.isHeader)
                 .heroCard()
                 .padding(.vertical, 4)
+            
+            Spacer().frame(height: 24)
 
             // Card 2: Verse of the day section
-            VStack(spacing: 24) {
+            VStack(spacing: 12) {
                 Text("Verse of the day")
                     .font(.headline)
                     .foregroundColor(.primary)
@@ -123,7 +125,7 @@ struct RandomVerseView: View {
                     }
                     .disabled(currentVerse == nil)
                 }
-                .padding(.top, 6)
+                .padding(.top, 2)
                 
                 if copied {
                     HStack(spacing: 8) {
@@ -140,6 +142,8 @@ struct RandomVerseView: View {
             }
             .heroCard()
             .padding(.vertical, 4)
+            
+            Spacer().frame(height: 2)
 
             // Card 3: Prayer/Study Timer section
             ZStack {
@@ -190,12 +194,15 @@ struct RandomVerseView: View {
                         }
                     }
                 }
+                .frame(maxHeight: .infinity) // to center vertically in ZStack
             }
             .heroCard()
+            .frame(height: 130)
             .padding(.vertical, 4)
             
-            Spacer()
+            Spacer().frame(height: 32)
         }
+        .padding(.top, 20)
         .safeAreaInset(edge: .bottom) {
             Button("Resume") {
                 // No action yet
@@ -206,6 +213,7 @@ struct RandomVerseView: View {
             .padding(.horizontal)
             .heroCard()
             .padding(.vertical, 4)
+            .padding(.bottom, 18)
         }
         .onAppear(perform: pickRandomVerse)
         .sheet(isPresented: $showingShare) {
@@ -277,3 +285,4 @@ struct RandomVerseView: View {
         }
     }
 }
+
